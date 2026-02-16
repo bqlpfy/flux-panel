@@ -7,7 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lijt/flux-panel/internal/config"
+	"github.com/lijt/flux-panel/internal/handler"
 	"github.com/lijt/flux-panel/internal/middleware"
+	"github.com/lijt/flux-panel/internal/service"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -37,6 +39,17 @@ func main() {
 
 	slog.Info("資料庫連線成功")
 
+	// 初始化 Service
+	userSvc := &service.UserService{DB: db, Cfg: cfg}
+	nodeSvc := &service.NodeService{DB: db}
+
+	// 初始化 Handler
+	userH := &handler.UserHandler{Svc: userSvc}
+	nodeH := &handler.NodeHandler{Svc: nodeSvc}
+	configH := &handler.ConfigHandler{DB: db}
+	captchaH := &handler.CaptchaHandler{DB: db}
+	openAPIH := &handler.OpenAPIHandler{DB: db}
+
 	// 設定 Gin
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -51,18 +64,18 @@ func main() {
 	})
 
 	// ===== 公開路由（無需認證）=====
-	setupPublicRoutes(r, db, cfg)
+	setupPublicRoutes(r, userH, configH, captchaH, openAPIH)
 
 	// ===== 認證路由 =====
 	auth := r.Group("")
 	auth.Use(middleware.JWTAuth(cfg.JWTSecret))
-	setupAuthRoutes(auth, db, cfg)
+	setupAuthRoutes(auth, userH)
 
 	// ===== 管理員路由 =====
 	admin := r.Group("")
 	admin.Use(middleware.JWTAuth(cfg.JWTSecret))
 	admin.Use(middleware.AdminOnly())
-	setupAdminRoutes(admin, db, cfg)
+	setupAdminRoutes(admin, userH, nodeH, configH)
 
 	// 啟動伺服器
 	addr := fmt.Sprintf(":%d", cfg.ServerPort)
@@ -74,67 +87,68 @@ func main() {
 }
 
 // setupPublicRoutes 公開路由（無需認證）
-func setupPublicRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config) {
-	// POST /api/v1/user/login
-	// POST /api/v1/captcha/get
-	// POST /api/v1/captcha/check
-	// GET  /api/v1/captcha/get
-	// POST /api/v1/open_api/sub
-	// POST /flow/report
-	// GET  /api/v1/config/get  (公開)
+func setupPublicRoutes(r *gin.Engine, userH *handler.UserHandler, configH *handler.ConfigHandler, captchaH *handler.CaptchaHandler, openAPIH *handler.OpenAPIHandler) {
+	user := r.Group("/api/v1/user")
+	{
+		user.POST("/login", userH.Login)
+	}
 
-	// TODO: Phase 2 中實作各 handler
+	captcha := r.Group("/api/v1/captcha")
+	{
+		captcha.POST("/check", captchaH.Check)
+		captcha.POST("/generate", captchaH.Generate)
+		captcha.POST("/verify", captchaH.Verify)
+	}
+
+	configPub := r.Group("/api/v1/config")
+	{
+		configPub.POST("/list", configH.List)
+		configPub.POST("/get", configH.Get)
+	}
+
+	openAPI := r.Group("/api/v1/open_api")
+	{
+		openAPI.GET("/sub_store", openAPIH.SubStore)
+	}
 }
 
 // setupAuthRoutes 需登入的路由
-func setupAuthRoutes(auth *gin.RouterGroup, db *gorm.DB, cfg *config.Config) {
-	// GET  /api/v1/user/info
-	// POST /api/v1/user/updatePwd
-	// GET  /api/v1/user/package
-
-	// TODO: Phase 2 中實作
+func setupAuthRoutes(auth *gin.RouterGroup, userH *handler.UserHandler) {
+	user := auth.Group("/api/v1/user")
+	{
+		user.POST("/package", userH.Package)
+		user.POST("/updatePassword", userH.UpdatePassword)
+	}
 }
 
 // setupAdminRoutes 管理員路由
-func setupAdminRoutes(admin *gin.RouterGroup, db *gorm.DB, cfg *config.Config) {
+func setupAdminRoutes(admin *gin.RouterGroup, userH *handler.UserHandler, nodeH *handler.NodeHandler, configH *handler.ConfigHandler) {
 	// ---- User (admin) ----
-	// GET    /api/v1/user/list
-	// POST   /api/v1/user/add
-	// POST   /api/v1/user/update
-	// DELETE /api/v1/user/delete/:id
-	// POST   /api/v1/user/updateStatus
+	user := admin.Group("/api/v1/user")
+	{
+		user.POST("/create", userH.Create)
+		user.POST("/list", userH.List)
+		user.POST("/update", userH.Update)
+		user.POST("/delete", userH.Delete)
+		user.POST("/reset", userH.Reset)
+	}
 
 	// ---- Node ----
-	// GET    /api/v1/node/list
-	// POST   /api/v1/node/add
-	// POST   /api/v1/node/update
-	// DELETE /api/v1/node/delete/:id
-	// GET    /api/v1/node/install_script
+	node := admin.Group("/api/v1/node")
+	{
+		node.POST("/create", nodeH.Create)
+		node.POST("/list", nodeH.List)
+		node.POST("/update", nodeH.Update)
+		node.POST("/delete", nodeH.Delete)
+		node.POST("/install", nodeH.Install)
+	}
 
-	// ---- Tunnel ----
-	// GET    /api/v1/tunnel/list
-	// POST   /api/v1/tunnel/add
-	// POST   /api/v1/tunnel/update
-	// DELETE /api/v1/tunnel/delete/:id
-	// ... 更多隧道端點
+	// ---- Config (admin write) ----
+	cfgAdmin := admin.Group("/api/v1/config")
+	{
+		cfgAdmin.POST("/update", configH.Update)
+		cfgAdmin.POST("/update-single", configH.UpdateSingle)
+	}
 
-	// ---- Forward ----
-	// GET    /api/v1/forward/list
-	// POST   /api/v1/forward/add
-	// POST   /api/v1/forward/update
-	// DELETE /api/v1/forward/delete/:id
-	// ... 更多轉發端點
-
-	// ---- SpeedLimit ----
-	// GET    /api/v1/speed-limit/list
-	// POST   /api/v1/speed-limit/add
-	// POST   /api/v1/speed-limit/update
-	// DELETE /api/v1/speed-limit/delete/:id
-
-	// ---- Config ----
-	// POST   /api/v1/config/add
-	// POST   /api/v1/config/update
-	// DELETE /api/v1/config/delete/:id
-
-	// TODO: Phase 2-3 中實作
+	// TODO: Phase 3 - Tunnel, Forward, UserTunnel, SpeedLimit routes
 }

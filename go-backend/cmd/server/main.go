@@ -42,6 +42,10 @@ func main() {
 	// 初始化 Service
 	userSvc := &service.UserService{DB: db, Cfg: cfg}
 	nodeSvc := &service.NodeService{DB: db}
+	tunnelSvc := &service.TunnelService{DB: db}
+	forwardSvc := &service.ForwardService{DB: db}
+	speedLimitSvc := &service.SpeedLimitService{DB: db}
+	userTunnelSvc := &service.UserTunnelService{DB: db}
 
 	// 初始化 Handler
 	userH := &handler.UserHandler{Svc: userSvc}
@@ -49,6 +53,10 @@ func main() {
 	configH := &handler.ConfigHandler{DB: db}
 	captchaH := &handler.CaptchaHandler{DB: db}
 	openAPIH := &handler.OpenAPIHandler{DB: db}
+	tunnelH := &handler.TunnelHandler{Svc: tunnelSvc}
+	forwardH := &handler.ForwardHandler{Svc: forwardSvc}
+	speedLimitH := &handler.SpeedLimitHandler{Svc: speedLimitSvc}
+	userTunnelH := &handler.UserTunnelHandler{Svc: userTunnelSvc}
 
 	// 設定 Gin
 	gin.SetMode(gin.ReleaseMode)
@@ -69,13 +77,13 @@ func main() {
 	// ===== 認證路由 =====
 	auth := r.Group("")
 	auth.Use(middleware.JWTAuth(cfg.JWTSecret))
-	setupAuthRoutes(auth, userH)
+	setupAuthRoutes(auth, userH, tunnelH, forwardH)
 
 	// ===== 管理員路由 =====
 	admin := r.Group("")
 	admin.Use(middleware.JWTAuth(cfg.JWTSecret))
 	admin.Use(middleware.AdminOnly())
-	setupAdminRoutes(admin, userH, nodeH, configH)
+	setupAdminRoutes(admin, userH, nodeH, configH, tunnelH, forwardH, speedLimitH, userTunnelH)
 
 	// 啟動伺服器
 	addr := fmt.Sprintf(":%d", cfg.ServerPort)
@@ -112,17 +120,35 @@ func setupPublicRoutes(r *gin.Engine, userH *handler.UserHandler, configH *handl
 	}
 }
 
-// setupAuthRoutes 需登入的路由
-func setupAuthRoutes(auth *gin.RouterGroup, userH *handler.UserHandler) {
+// setupAuthRoutes 需登入的路由（所有角色可用）
+func setupAuthRoutes(auth *gin.RouterGroup, userH *handler.UserHandler, tunnelH *handler.TunnelHandler, forwardH *handler.ForwardHandler) {
 	user := auth.Group("/api/v1/user")
 	{
 		user.POST("/package", userH.Package)
 		user.POST("/updatePassword", userH.UpdatePassword)
 	}
+
+	// ---- Tunnel (登入用戶都可查列表) ----
+	tunnel := auth.Group("/api/v1/tunnel")
+	{
+		tunnel.POST("/list", tunnelH.List)
+		tunnel.GET("/:id", tunnelH.GetByID)
+	}
+
+	// ---- Forward (登入用戶可操作自己的轉發) ----
+	forward := auth.Group("/api/v1/forward")
+	{
+		forward.POST("/add", forwardH.Create)
+		forward.POST("/list", forwardH.List)
+		forward.POST("/update", forwardH.Update)
+		forward.POST("/delete/:id", forwardH.Delete)
+		forward.POST("/pause/:id", forwardH.Pause)
+		forward.POST("/resume/:id", forwardH.Resume)
+	}
 }
 
 // setupAdminRoutes 管理員路由
-func setupAdminRoutes(admin *gin.RouterGroup, userH *handler.UserHandler, nodeH *handler.NodeHandler, configH *handler.ConfigHandler) {
+func setupAdminRoutes(admin *gin.RouterGroup, userH *handler.UserHandler, nodeH *handler.NodeHandler, configH *handler.ConfigHandler, tunnelH *handler.TunnelHandler, forwardH *handler.ForwardHandler, speedLimitH *handler.SpeedLimitHandler, userTunnelH *handler.UserTunnelHandler) {
 	// ---- User (admin) ----
 	user := admin.Group("/api/v1/user")
 	{
@@ -150,5 +176,39 @@ func setupAdminRoutes(admin *gin.RouterGroup, userH *handler.UserHandler, nodeH 
 		cfgAdmin.POST("/update-single", configH.UpdateSingle)
 	}
 
-	// TODO: Phase 3 - Tunnel, Forward, UserTunnel, SpeedLimit routes
+	// ---- Tunnel (admin: create/update/delete) ----
+	tunnelAdmin := admin.Group("/api/v1/tunnel")
+	{
+		tunnelAdmin.POST("/add", tunnelH.Create)
+		tunnelAdmin.POST("/update", tunnelH.Update)
+		tunnelAdmin.POST("/delete/:id", tunnelH.Delete)
+	}
+
+	// ---- Forward (admin: diagnose + updateOrder) ----
+	forwardAdmin := admin.Group("/api/v1/forward")
+	{
+		forwardAdmin.POST("/diagnose/:id", forwardH.Diagnose)
+		forwardAdmin.POST("/updateOrder", forwardH.UpdateOrder)
+	}
+
+	// ---- SpeedLimit ----
+	sl := admin.Group("/api/v1/speed_limit")
+	{
+		sl.POST("/add", speedLimitH.Create)
+		sl.POST("/list", speedLimitH.List)
+		sl.POST("/update", speedLimitH.Update)
+		sl.POST("/delete/:id", speedLimitH.Delete)
+		sl.GET("/tunnel/:tunnelId", speedLimitH.GetTunnelSpeedLimits)
+	}
+
+	// ---- UserTunnel ----
+	ut := admin.Group("/api/v1/user_tunnel")
+	{
+		ut.POST("/add", userTunnelH.Create)
+		ut.POST("/list", userTunnelH.List)
+		ut.POST("/update", userTunnelH.Update)
+		ut.POST("/delete/:id", userTunnelH.Delete)
+		ut.POST("/reset_flow/:id", userTunnelH.ResetFlow)
+	}
 }
+

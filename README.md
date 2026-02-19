@@ -1,13 +1,6 @@
-# flux-panel转发面板 哆啦A梦转发面板
+# flux-panel 转发面板
 
-## 项目更新说明
-由于一些个人原因，**flux-panel** 将暂停更新一段时间，**恢复更新时间暂不确定**。
-
-在此期间，项目不会继续推进新功能或修复问题，对可能带来的不便表示抱歉。当前已有功能仍可正常使用，也欢迎大家继续 Fork 或自行维护。
-
-如后续恢复更新，我会第一时间在仓库中说明。  
-感谢大家的理解与支持。
-
+本项目基于 [go-gost/gost](https://github.com/go-gost/gost) 和 [go-gost/x](https://github.com/go-gost/x) 两个开源库，实现了转发面板。
 
 # 赞助商
 <p align="center">
@@ -20,9 +13,8 @@
   </a>
 </p>
 
-
-本项目基于 [go-gost/gost](https://github.com/go-gost/gost) 和 [go-gost/x](https://github.com/go-gost/x) 两个开源库，实现了转发面板。
 ---
+
 ## 特性
 
 - 支持按 **隧道账号级别** 管理流量转发数量，可用于用户/隧道配额控制
@@ -32,38 +24,177 @@
 - 支持配置 **单向或双向流量计费方式**，灵活适配不同计费模型
 - 提供灵活的转发策略配置，适用于多种网络场景
 
+---
+
+## 技术栈
+
+| 组件     | 技术                     | 说明                  |
+|----------|--------------------------|----------------------|
+| 后端     | **Go 1.23** + Gin        | 高性能，单二进制部署   |
+| 前端     | Vue 3 + Vite             | 现代化 SPA            |
+| 数据库   | MySQL 5.7+               | utf8mb4              |
+| 通信     | WebSocket + AES-256-GCM  | 节点加密通信          |
+| 部署     | Docker Compose           | 一键部署              |
+
+### 项目结构
+
+```
+flux-panel/
+├── go-backend/              # Go 后端
+│   ├── cmd/server/          # 主入口
+│   ├── internal/
+│   │   ├── config/          # 环境变量配置
+│   │   ├── handler/         # HTTP 处理器
+│   │   ├── middleware/      # JWT / CORS / Recovery
+│   │   ├── model/           # 数据模型
+│   │   ├── pkg/             # 工具 (AES / Gost / MD5)
+│   │   ├── service/         # 业务逻辑
+│   │   ├── task/            # 排程任务
+│   │   └── ws/              # WebSocket
+│   └── Dockerfile
+├── vite-frontend/           # Vue 前端
+├── docker-compose-go.yml    # Go 版部署
+├── gost.sql                 # 数据库初始化
+└── install.sh               # 节点安装脚本
+```
+
+---
 
 ## 部署流程
----
-### Docker Compose部署
-#### 快速部署
-面板端(稳定版)：
+
+### 环境要求
+
+- Docker 20.10+
+- Docker Compose v2+
+- 开放端口：面板端口（默认 6365）、节点通信端口
+
+### 一、Docker Compose 部署（推荐）
+
+#### 1. 克隆项目
+
 ```bash
-curl -L https://raw.githubusercontent.com/bqlpfy/flux-panel/refs/heads/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+git clone https://github.com/bqlpfy/flux-panel.git
+cd flux-panel
 ```
-节点端(稳定版)：
+
+#### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件：
+
+```env
+# 数据库
+DB_NAME=gost
+DB_USER=gost
+DB_PASSWORD=your_secure_password
+
+# JWT 密钥（请修改为随机字符串）
+JWT_SECRET=your_jwt_secret_here
+
+# 端口
+BACKEND_PORT=6365
+FRONTEND_PORT=80
+```
+
+#### 3. 启动服务
+
+```bash
+docker compose -f docker-compose-go.yml --env-file .env up -d
+```
+
+#### 4. 查看状态
+
+```bash
+docker compose -f docker-compose-go.yml ps
+```
+
+服务启动后：
+- **前端**：`http://your-server-ip:80`
+- **后端 API**：`http://your-server-ip:6365`
+
+#### 5. 默认管理员账号
+
+| 项目 | 值 |
+|------|-----|
+| 账号 | `admin_user` |
+| 密码 | `admin_user` |
+
+> ⚠️ **首次登录后请立即修改默认密码！**
+
+---
+
+### 二、节点安装
+
+#### 稳定版
+
 ```bash
 curl -L https://raw.githubusercontent.com/bqlpfy/flux-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
-
 ```
 
-面板端(开发版)：
+#### 带参数安装（非交互）
+
 ```bash
-curl -L https://raw.githubusercontent.com/bqlpfy/flux-panel/refs/heads/beta/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+curl -L https://raw.githubusercontent.com/bqlpfy/flux-panel/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh -a <面板地址:端口> -s <节点密钥>
 ```
-节点端(开发版)：
+
+---
+
+### 三、更新与维护
+
+#### 更新面板
+
 ```bash
-curl -L https://raw.githubusercontent.com/bqlpfy/flux-panel/refs/heads/beta/install.sh -o install.sh && chmod +x install.sh && ./install.sh
-
+cd flux-panel
+git pull
+docker compose -f docker-compose-go.yml --env-file .env up -d --build
 ```
 
-#### 默认管理员账号
+#### 查看日志
 
-- **账号**: admin_user
-- **密码**: admin_user
+```bash
+# 后端日志
+docker logs -f go-backend
 
-> ⚠️ 首次登录后请立即修改默认密码！
+# 全部日志
+docker compose -f docker-compose-go.yml logs -f
+```
 
+#### 停止服务
+
+```bash
+docker compose -f docker-compose-go.yml down
+```
+
+#### 停止并清除数据（⚠️ 不可恢复）
+
+```bash
+docker compose -f docker-compose-go.yml down -v
+```
+
+---
+
+## 配置参考
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DB_HOST` | `mysql` | 数据库地址（容器内使用 `mysql`） |
+| `DB_PORT` | `3306` | 数据库端口 |
+| `DB_NAME` | `gost` | 数据库名 |
+| `DB_USER` | `root` | 数据库用户 |
+| `DB_PASSWORD` | — | 数据库密码（**必填**） |
+| `JWT_SECRET` | — | JWT 签名密钥（**必填**） |
+| `JWT_EXPIRE_HOURS` | `168` | Token 过期时间（小时） |
+| `SERVER_PORT` | `8080` | 后端监听端口（容器内部） |
+| `BACKEND_PORT` | `6365` | 后端对外映射端口 |
+| `FRONTEND_PORT` | `80` | 前端对外映射端口 |
+| `CORS_ORIGINS` | `*` | CORS 允许来源 |
+
+---
 
 ## 免责声明
 
@@ -84,12 +215,8 @@ curl -L https://raw.githubusercontent.com/bqlpfy/flux-panel/refs/heads/beta/inst
 
 如不同意上述条款，请立即停止使用本项目。  
 
-作者对因使用本项目所造成的任何直接或间接损失概不负责，亦不提供任何形式的担保、承诺或技术支持。  
-
-
-请务必在合法、合规、安全的前提下使用本项目。  
-
 ---
+
 ## ⭐ 喝杯咖啡！（USDT）
 
 | 网络       | 地址                                                                 |
@@ -99,4 +226,3 @@ curl -L https://raw.githubusercontent.com/bqlpfy/flux-panel/refs/heads/beta/inst
 | Aptos      | `0xf2f9fb14749457748506a8281628d556e8540d1eb586d202cd8b02b99d369ef8`  |
 
 [![Star History Chart](https://api.star-history.com/svg?repos=bqlpfy/flux-panel&type=Date)](https://www.star-history.com/#bqlpfy/flux-panel&Date)
-

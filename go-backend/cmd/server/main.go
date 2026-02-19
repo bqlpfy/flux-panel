@@ -9,7 +9,10 @@ import (
 	"github.com/lijt/flux-panel/internal/config"
 	"github.com/lijt/flux-panel/internal/handler"
 	"github.com/lijt/flux-panel/internal/middleware"
+	"github.com/lijt/flux-panel/internal/pkg"
 	"github.com/lijt/flux-panel/internal/service"
+	"github.com/lijt/flux-panel/internal/task"
+	"github.com/lijt/flux-panel/internal/ws"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -58,6 +61,17 @@ func main() {
 	speedLimitH := &handler.SpeedLimitHandler{Svc: speedLimitSvc}
 	userTunnelH := &handler.UserTunnelHandler{Svc: userTunnelSvc}
 
+	// 初始化 WebSocket Hub
+	hub := ws.NewHub(db, cfg.JWTSecret)
+	pkg.SetWSHub(hub)
+	slog.Info("WebSocket Hub 初始化完成")
+
+	// 初始化 Flow Handler
+	flowH := &handler.FlowHandler{DB: db}
+
+	// 啟動排程任務
+	task.StartScheduler(db)
+
 	// 設定 Gin
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -70,6 +84,16 @@ func main() {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+
+	// ===== WebSocket 端點（無需 JWT 中間件，自行驗證）=====
+	r.GET("/system-info", hub.HandleWS)
+
+	// ===== 流量上報（節點調用，用 secret 驗證）=====
+	flow := r.Group("/flow")
+	{
+		flow.POST("/upload", flowH.Upload)
+		flow.POST("/config", flowH.Config)
+	}
 
 	// ===== 公開路由（無需認證）=====
 	setupPublicRoutes(r, userH, configH, captchaH, openAPIH)

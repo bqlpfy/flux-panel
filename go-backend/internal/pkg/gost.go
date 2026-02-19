@@ -25,12 +25,27 @@ func GostErr(msg string) GostResult {
 	return GostResult{Code: 1, Msg: msg}
 }
 
-// ──────────────────────── WebSocket 傳送（Phase 4 才實作真正的 WS）────────────────────────
-// sendMsg 是 WebSocketServer.send_msg 的 stub，Phase 4 接入真實 WebSocket
+// ──────────────────────── WebSocket Hub 介面注入 ────────────────────────
+
+// WSHub WebSocket 發送介面（由 ws.Hub 實作）
+type WSHub interface {
+	SendMsg(nodeID int64, data interface{}, action string) GostResult
+}
+
+var wsHub WSHub
+
+// SetWSHub 注入 WebSocket Hub 實例（由 main.go 啟動時呼叫）
+func SetWSHub(h WSHub) {
+	wsHub = h
+}
+
+// sendMsg 透過 WebSocket Hub 發送命令到節點
 func sendMsg(nodeID int64, data interface{}, action string) GostResult {
-	slog.Info("GostUtil.sendMsg (stub)", "nodeID", nodeID, "action", action)
-	// TODO: Phase 4 實作真正的 WebSocket 發送
-	return GostOk()
+	if wsHub == nil {
+		slog.Warn("GostUtil.sendMsg: WebSocket Hub 尚未初始化", "nodeID", nodeID, "action", action)
+		return GostOk() // 靜默成功，避免阻塞啟動流程
+	}
+	return wsHub.SendMsg(nodeID, data, action)
 }
 
 // ──────────────────────── Limiters ────────────────────────

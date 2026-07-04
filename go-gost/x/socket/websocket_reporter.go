@@ -213,7 +213,7 @@ func (w *WebSocketReporter) connect() error {
 	}
 
 	// 使用最新的配置重新构建 URL
-	currentURL := "ws://" + w.addr + "/system-info?type=1&secret=" + w.secret + "&version=" + w.version +
+	currentURL := buildWsBaseURL(w.addr) + "/system-info?type=1&secret=" + w.secret + "&version=" + w.version +
 		"&http=" + strconv.Itoa(cfg.Http) + "&tls=" + strconv.Itoa(cfg.Tls) + "&socks=" + strconv.Itoa(cfg.Socks)
 
 	u, err := url.Parse(currentURL)
@@ -1039,11 +1039,26 @@ func getMemoryInfo() MemoryInfo {
 	return memInfo
 }
 
+// buildWsBaseURL 根据addr构造WebSocket基地址(不含路径)，支持wss://
+// addr 可为: 裸host(默认ws://)、ws://host、wss://host、http://host、https://host
+func buildWsBaseURL(addr string) string {
+	switch {
+	case strings.HasPrefix(addr, "wss://"), strings.HasPrefix(addr, "ws://"):
+		return addr
+	case strings.HasPrefix(addr, "https://"):
+		return "wss://" + strings.TrimPrefix(addr, "https://")
+	case strings.HasPrefix(addr, "http://"):
+		return "ws://" + strings.TrimPrefix(addr, "http://")
+	default:
+		return "ws://" + addr
+	}
+}
+
 // StartWebSocketReporterWithConfig 使用配置字段启动WebSocket报告器
 func StartWebSocketReporterWithConfig(addr string, secret string, http int, tls int, socks int, version string) *WebSocketReporter {
 
 	// 构建初始 WebSocket URL
-	fullURL := "ws://" + addr + "/system-info?type=1&secret=" + secret + "&version=" + version + "&http=" + strconv.Itoa(http) + "&tls=" + strconv.Itoa(tls) + "&socks=" + strconv.Itoa(socks)
+	fullURL := buildWsBaseURL(addr) + "/system-info?type=1&secret=" + secret + "&version=" + version + "&http=" + strconv.Itoa(http) + "&tls=" + strconv.Itoa(tls) + "&socks=" + strconv.Itoa(socks)
 
 	fmt.Printf("🔗 WebSocket连接URL: %s\n", fullURL)
 

@@ -26,9 +26,26 @@ type TrafficReportItem struct {
 	D int64  `json:"d"` // 下行流量（down缩写）
 }
 
+// buildHttpBaseURL 根据addr构造HTTP基地址(不含路径)，支持https://
+// addr 可为: 裸host(默认http://)、ws://host、wss://host、http://host、https://host
+func buildHttpBaseURL(addr string) string {
+	switch {
+	case strings.HasPrefix(addr, "wss://"):
+		return "https://" + strings.TrimPrefix(addr, "wss://")
+	case strings.HasPrefix(addr, "https://"):
+		return addr
+	case strings.HasPrefix(addr, "ws://"):
+		return "http://" + strings.TrimPrefix(addr, "ws://")
+	case strings.HasPrefix(addr, "http://"):
+		return addr
+	default:
+		return "http://" + addr
+	}
+}
+
 func SetHTTPReportURL(addr string, secret string) {
-	httpReportURL = "http://" + addr + "/flow/upload?secret=" + secret
-	configReportURL = "http://" + addr + "/flow/config?secret=" + secret
+	httpReportURL = buildHttpBaseURL(addr) + "/flow/upload?secret=" + secret
+	configReportURL = buildHttpBaseURL(addr) + "/flow/config?secret=" + secret
 
 	// 创建 AES 加密器
 	var err error
